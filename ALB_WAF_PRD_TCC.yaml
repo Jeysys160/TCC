@@ -34,6 +34,7 @@ Resources:
   ALB: 
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
+      Name: !Sub "${EnvironmentName}-ALB"
       SecurityGroups:
         - !Ref ALBSecurityGroup
       Subnets: 
@@ -43,10 +44,11 @@ Resources:
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
+      Name: !Sub "${EnvironmentName}-TG"
       TargetType: instance
       HealthCheckPath: /otrs/index.pl
-      Port: 80
-      Protocol: HTTP
+      Port: 443
+      Protocol: HTTPS
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName} - TargetGroup
@@ -90,7 +92,7 @@ Resources:
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: "ALB-SG-PRD"
+      GroupName: "ALB-SG-PRDD"
       GroupDescription: Grupo de Seguridad para el ALB
       VpcId: !Ref VPC
       SecurityGroupIngress:
