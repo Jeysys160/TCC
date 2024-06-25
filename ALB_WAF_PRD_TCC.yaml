@@ -1,0 +1,178 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Seguridad para TCC Crear ALB y WAF
+
+#------------------- VPC Y SUBRED ------------------------------------------
+
+Parameters: 
+  EnvironmentName:
+    Description: Nombre para el proyecto
+    Type: String
+
+  VPC:
+    Description: VPC del Proyecto
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-07e4cf4e7e43f2439
+
+  Subnet1:
+    Description: Subnet1
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-0a02195abe9098b16
+
+  Subnet2:
+    Description: Subnet1
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-00759df60f87f0203
+
+  IdEC2Orig:
+    Description: ID de la EC2 Original
+    Type: String
+    Default: i-0402eead1573a1727
+
+
+#-------------------------------------- BALANCEADOR DE CARGAS --------------------------
+Resources:
+  ALB: 
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets: 
+        - !Ref Subnet1
+        - !Ref Subnet2
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      TargetType: instance
+      HealthCheckPath: /otrs/index.pl
+      Port: 80
+      Protocol: HTTP
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} - TargetGroup
+      Targets: 
+        - Id: !Ref IdEC2Orig
+      VpcId: !Ref VPC
+      TargetGroupAttributes:
+        - Key: stickiness.enabled
+          Value: true 
+        - Key: stickiness.type
+          Value: lb_cookie
+        - Key: stickiness.lb_cookie.duration_seconds
+          Value: 28800
+
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: 443
+            StatusCode: HTTP_301
+      LoadBalancerArn: !Ref ALB
+  
+  ALBListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Protocol: HTTPS
+      Port: 443
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      Certificates:
+        - CertificateArn: arn:aws:acm:us-east-1:120734402213:certificate/84090d04-86c9-4ae7-bcbc-17311cccbbe9
+      LoadBalancerArn: !Ref ALB
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "ALB-SG-PRD"
+      GroupDescription: Grupo de Seguridad para el ALB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} - SGALB
+
+#-------------------------------------------------------------------------------------
+
+# -------------------------------------- WAF -------------------------------------------
+  WafWebACL:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub ${EnvironmentName}-WAF
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      Description: WAF con las Reglas Manejadas por AWS
+      Rules:
+
+        - Name: AWSManagedRulesCommonRuleSet
+          Priority: 1
+          OverrideAction:
+            #Count: {}
+            None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: CommonRuleSet
+          Statement:
+            ManagedRuleGroupStatement:
+              Name: AWSManagedRulesCommonRuleSet
+              VendorName: AWS
+              ExcludedRules:
+                - Name: SizeRestrictions_BODY
+                - Name: CrossSiteScripting_BODY
+
+        - Name: AWSManagedRulesAmazonIpReputationList
+          Priority: 0
+          OverrideAction:
+            #Count: {}
+            None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: IpReputationList
+          Statement:
+            ManagedRuleGroupStatement:
+              Name: AWSManagedRulesAmazonIpReputationList
+              VendorName: AWS
+        - Name: AWSManagedRulesKnownBadInputsRuleSet
+          Priority: 2
+          OverrideAction:
+            #Count: {}
+            None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: KnownBadInputsRuleSet
+          Statement:
+            ManagedRuleGroupStatement:
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+              VendorName: AWS
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: WEBACL
+# ---------------------------------------------------------------------------------
+
+# -------------------- ASOCIAR WAF CON ALB ---------------------------------------
+  WAFv2Association:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref ALB
+      WebACLArn: !GetAtt WafWebACL.Arn
+#----------------------------------------------------------------------------------
+
