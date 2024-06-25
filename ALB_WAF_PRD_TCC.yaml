@@ -40,6 +40,9 @@ Resources:
       Subnets: 
         - !Ref Subnet1
         - !Ref Subnet2
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: 3600
 
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
